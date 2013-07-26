@@ -33,7 +33,7 @@ namespace FluentMigrator.Runner
 {
     public class MigrationRunner : IMigrationRunner
     {
-        private Assembly _migrationAssembly;
+        private ICollection<MigrationAssemblyInfo> _migrationAssemblies;
         private IAnnouncer _announcer;
         private IStopWatch _stopWatch;
         private bool _alreadyOutputPreviewOnlyModeWarning;
@@ -66,8 +66,18 @@ namespace FluentMigrator.Runner
         }
 
         public MigrationRunner(Assembly assembly, IRunnerContext runnerContext, IMigrationProcessor processor)
+            : this(
+                new List<MigrationAssemblyInfo>() { new MigrationAssemblyInfo() { Assembly = assembly, Namespace = runnerContext.Namespace } },
+                runnerContext,
+                processor,
+                false)
         {
-            _migrationAssembly = assembly;
+
+        }
+
+        public MigrationRunner(ICollection<MigrationAssemblyInfo> assemblyInfos, IRunnerContext runnerContext, IMigrationProcessor processor, bool loadNestedNamespaces)
+        {
+            _migrationAssemblies = assemblyInfos;
             _announcer = runnerContext.Announcer;
             Processor = processor;
             _stopWatch = runnerContext.StopWatch;
@@ -83,10 +93,11 @@ namespace FluentMigrator.Runner
 
             _migrationScopeHandler = new MigrationScopeHandler(Processor);
             _migrationValidator = new MigrationValidator(_announcer, Conventions);
-            VersionLoader = new VersionLoader(this, _migrationAssembly, Conventions);
-            MigrationLoader = new DefaultMigrationInformationLoader(Conventions, _migrationAssembly, runnerContext.Namespace, runnerContext.NestedNamespaces, runnerContext.Tags);
+            VersionLoader = new VersionLoader(this, assemblyInfos, Conventions);
+            MigrationLoader = new DefaultMigrationInformationLoader(Conventions, assemblyInfos, runnerContext.NestedNamespaces, runnerContext.Tags);
             ProfileLoader = new ProfileLoader(runnerContext, this, Conventions);
         }
+
 
         public IVersionLoader VersionLoader { get; set; }
 
@@ -144,8 +155,8 @@ namespace FluentMigrator.Runner
         {
             var migrations = MigrationLoader.LoadMigrations();
 
-            return from pair in migrations 
-                   where IsMigrationStepNeededForUpMigration(pair.Key, version) 
+            return from pair in migrations
+                   where IsMigrationStepNeededForUpMigration(pair.Key, version)
                    select pair.Value;
         }
 
@@ -185,8 +196,8 @@ namespace FluentMigrator.Runner
         {
             var migrations = MigrationLoader.LoadMigrations();
 
-            var migrationsToApply = (from pair in migrations 
-                                     where IsMigrationStepNeededForDownMigration(pair.Key, targetVersion) 
+            var migrationsToApply = (from pair in migrations
+                                     where IsMigrationStepNeededForDownMigration(pair.Key, targetVersion)
                                      select pair.Value)
                                      .ToList();
 
@@ -225,7 +236,7 @@ namespace FluentMigrator.Runner
                 {
                     ExecuteMigration(migrationInfo.Migration, (m, c) => m.GetUpExpressions(c));
                     if (migrationInfo.IsAttributed()) VersionLoader.UpdateVersionInfo(migrationInfo.Version);
-                    
+
                     scope.Complete();
 
                     _stopWatch.Stop();
@@ -249,7 +260,7 @@ namespace FluentMigrator.Runner
             {
                 ExecuteMigration(migrationInfo.Migration, (m, c) => m.GetDownExpressions(c));
                 if (migrationInfo.IsAttributed()) VersionLoader.DeleteVersion(migrationInfo.Version);
-                
+
                 scope.Complete();
 
                 _stopWatch.Stop();
@@ -281,7 +292,7 @@ namespace FluentMigrator.Runner
                 {
                     ApplyMigrationDown(migrationInfo, useAutomaticTransactionManagement && migrationInfo.TransactionBehavior == TransactionBehavior.Default);
                 }
-            
+
                 scope.Complete();
             }
 
@@ -315,7 +326,7 @@ namespace FluentMigrator.Runner
 
                     ApplyMigrationDown(migrationInfo, useAutomaticTransactionManagement && migrationInfo.TransactionBehavior == TransactionBehavior.Default);
                 }
-                
+
                 scope.Complete();
             }
 
@@ -325,9 +336,9 @@ namespace FluentMigrator.Runner
                 VersionLoader.RemoveVersionTable();
         }
 
-        public Assembly MigrationAssembly
+        public ICollection<MigrationAssemblyInfo> MigrationAssemblies
         {
-            get { return _migrationAssembly; }
+            get { return _migrationAssemblies; }
         }
 
         public void Up(IMigration migration)
@@ -340,8 +351,9 @@ namespace FluentMigrator.Runner
         private void ExecuteMigration(IMigration migration, Action<IMigration, IMigrationContext> getExpressions)
         {
             CaughtExceptions = new List<Exception>();
-            var context = new MigrationContext(Conventions, Processor, MigrationAssembly, ApplicationContext, Processor.ConnectionString);
-            
+            var migrationAssembly = Assembly.GetAssembly(migration.GetType());
+            var context = new MigrationContext(Conventions, Processor, migrationAssembly, ApplicationContext, Processor.ConnectionString);
+
             getExpressions(migration, context);
 
             _migrationValidator.ApplyConventionsToAndValidateExpressions(migration, context.Expressions);
@@ -355,7 +367,7 @@ namespace FluentMigrator.Runner
             ApplyMigrationDown(migrationInfoAdapter, true);
         }
 
-       
+
 
         /// <summary>
         /// execute each migration expression in the expression collection
@@ -423,7 +435,7 @@ namespace FluentMigrator.Runner
 
             _announcer.Heading("Migrations");
 
-            foreach(KeyValuePair<long, IMigrationInfo> migration in MigrationLoader.LoadMigrations())
+            foreach (KeyValuePair<long, IMigrationInfo> migration in MigrationLoader.LoadMigrations())
             {
                 string migrationName = migration.Value.GetName();
                 bool isCurrent = migration.Key == currentVersion;
@@ -431,7 +443,7 @@ namespace FluentMigrator.Runner
                                                 migrationName,
                                                 isCurrent ? " (current)" : string.Empty);
 
-                if(isCurrent)
+                if (isCurrent)
                     _announcer.Emphasize(message);
                 else
                     _announcer.Say(message);

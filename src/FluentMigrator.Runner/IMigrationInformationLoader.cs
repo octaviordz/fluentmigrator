@@ -42,17 +42,29 @@ namespace FluentMigrator.Runner
 
         public DefaultMigrationInformationLoader(IMigrationConventions conventions, Assembly assembly, string @namespace,
                                                  bool loadNestedNamespaces, IEnumerable<string> tagsToMatch)
+            : this(
+                conventions,
+                new List<MigrationAssemblyInfo>() { new MigrationAssemblyInfo() { Assembly = assembly, Namespace = @namespace } },
+                false,
+                tagsToMatch)
+        {
+        }
+
+        public DefaultMigrationInformationLoader(
+            IMigrationConventions conventions,
+            ICollection<MigrationAssemblyInfo> assemblies,
+            bool loadNestedNamespaces,
+            IEnumerable<string> tagsToMatch)
         {
             Conventions = conventions;
-            Assembly = assembly;
-            Namespace = @namespace;
+            Assemblies = assemblies;
             LoadNestedNamespaces = loadNestedNamespaces;
-            TagsToMatch = tagsToMatch ?? new string[] {};
+            TagsToMatch = tagsToMatch ?? new string[] { };
         }
 
         public IMigrationConventions Conventions { get; private set; }
-        public Assembly Assembly { get; private set; }
-        public string Namespace { get; private set; }
+        public ICollection<MigrationAssemblyInfo> Assemblies { get; private set; }
+
         public bool LoadNestedNamespaces { get; private set; }
         public IEnumerable<string> TagsToMatch { get; private set; }
 
@@ -79,27 +91,34 @@ namespace FluentMigrator.Runner
 
         private IEnumerable<IMigration> FindMigrations()
         {
-            IEnumerable<Type> matchedTypes = Assembly.GetExportedTypes()
+            foreach (var migrationAssemblyInfo in Assemblies)
+            {
+                IEnumerable<Type> matchedTypes = migrationAssemblyInfo.Assembly.GetExportedTypes()
                                                      .Where(t => Conventions.TypeIsMigration(t)
                                                                  &&
                                                                  (Conventions.TypeHasMatchingTags(t, TagsToMatch) ||
                                                                   !Conventions.TypeHasTags(t)));
-
-            if (!string.IsNullOrEmpty(Namespace))
-            {
-                Func<Type, bool> shouldInclude = t => t.Namespace == Namespace;
-                if (LoadNestedNamespaces)
+                var Namespace = migrationAssemblyInfo.Namespace;
+                if (!string.IsNullOrEmpty(Namespace))
                 {
-                    string matchNested = Namespace + ".";
-                    shouldInclude = t => t.Namespace == Namespace || t.Namespace.StartsWith(matchNested);
+                    Func<Type, bool> shouldInclude = t => t.Namespace == Namespace;
+                    if (LoadNestedNamespaces)
+                    {
+                        string matchNested = Namespace + ".";
+                        shouldInclude = t => t.Namespace == Namespace || t.Namespace.StartsWith(matchNested);
+                    }
+
+                    matchedTypes = matchedTypes.Where(shouldInclude);
                 }
 
-                matchedTypes = matchedTypes.Where(shouldInclude);
-            }
 
-            return
-                matchedTypes.Select(
-                    matchedType => (IMigration) matchedType.Assembly.CreateInstance(matchedType.FullName));
+                var migrations = matchedTypes.Select(
+                        matchedType => (IMigration)matchedType.Assembly.CreateInstance(matchedType.FullName));
+                foreach (var migration in migrations)
+                {
+                    yield return migration;
+                }
+            }
         }
     }
 }

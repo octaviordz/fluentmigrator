@@ -148,6 +148,7 @@
     <Compile Include="IMigrationScope.cs" />
     <Compile Include="IMigrationScopeStarter.cs" />
     <Compile Include="InvalidMigrationException.cs" />
+    <Compile Include="MigrationAssemblyInfo.cs" />
     <Compile Include="MigrationScopeHandler.cs" />
     <Compile Include="MigrationValidator.cs" />
     <Compile Include="Processors\Firebird\FirebirdProcessedExpression.cs" />
